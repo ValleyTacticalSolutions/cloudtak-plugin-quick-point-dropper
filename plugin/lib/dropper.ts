@@ -987,8 +987,11 @@ function uniqueClickIds(point: { x: number; y: number }): string[] {
         const layer = String(f.layer?.id || '');
         if (clickMap && clickMap.size > 0 && !clickMap.has(layer)) continue;
         const props = (f.properties || {}) as Record<string, unknown>;
-        const id = props.id ?? props.uid ?? f.id;
-        if (typeof id !== 'string' || !id || seen.has(id)) continue;
+        // CloudTAK stores the CoT UID on properties.id; the MapLibre feature
+        // id is a numeric vector hash and must not be used for lookups.
+        const raw = props.id ?? props.uid;
+        const id = typeof raw === 'string' ? raw : (typeof raw === 'number' ? String(raw) : '');
+        if (!id || seen.has(id)) continue;
         if (!clickMap || clickMap.size === 0) {
             const source = String(f.source || '');
             if (
@@ -1006,19 +1009,50 @@ function uniqueClickIds(point: { x: number; y: number }): string[] {
     return ids;
 }
 
-async function getFeature(uid: string): Promise<{
+type LoadedFeature = {
     id?: string;
     properties?: Record<string, unknown>;
     geometry?: { type?: string; coordinates?: number[] };
-} | null> {
-    if (!api) return null;
+};
+
+/**
+ * Resolve a CoT the same way CloudTAK map clicks do: worker memory first
+ * (including active Data Sync / mission features), then the local feature DB.
+ * `api.feature.list` only sees profile rows in IndexedDB, so freshly authored
+ * or mission-filed points often miss there and produced "Could not load that point".
+ */
+async function getFeature(uid: string): Promise<LoadedFeature | null> {
+    if (!api || !uid) return null;
+
+    try {
+        const mapStore = useMapStore(api.pinia);
+        const cot = await mapStore.worker.db.get(uid, { mission: true }) as {
+            id?: string;
+            properties?: Record<string, unknown>;
+            _properties?: Record<string, unknown>;
+            geometry?: LoadedFeature['geometry'];
+            _geometry?: LoadedFeature['geometry'];
+            as_feature?: (opts?: { clone?: boolean }) => LoadedFeature | Promise<LoadedFeature>;
+        } | null | undefined;
+
+        if (cot) {
+            if (typeof cot.as_feature === 'function') {
+                return await cot.as_feature({ clone: true });
+            }
+            return {
+                id: cot.id || uid,
+                properties: cot.properties || cot._properties,
+                geometry: cot.geometry || cot._geometry,
+            };
+        }
+    } catch {
+        /* fall through to Dexie list */
+    }
+
     const list = await api.feature.list({
-        filter: (f) => f.id === uid || String((f as { properties?: { id?: string } }).properties?.id) === uid
+        filter: (f) => f.id === uid || String((f as { properties?: { id?: string } }).properties?.id || '') === uid
     });
-    return (list[0] as typeof list[0] & {
-        properties?: Record<string, unknown>;
-        geometry?: { type?: string; coordinates?: number[] };
-    }) ?? null;
+    return (list[0] as LoadedFeature) ?? null;
 }
 
 async function upsertCot(opts: {
@@ -1177,6 +1211,7 @@ async function beginEdit(uid: string): Promise<void> {
         return;
     }
 
+    state.error = '';
     snapshotPreEdit();
     suppressSave = true;
     state.title = String(props.callsign || '');
