@@ -964,10 +964,20 @@ export async function deletePoint(): Promise<void> {
     if (!api || !state.editing) return;
     const id = state.editing.id;
     stopMove();
+    stopChangeIcon();
     clearSaveTimer();
     try {
         const mapStore = useMapStore(api.pinia);
-        await mapStore.worker.db.remove(id);
+        // Match CloudTAK FeatureRow / Map cot:delete — mission-filed points
+        // are invisible to remove(id) without { mission: true }, which used to
+        // no-op while still clearing the editor.
+        const exists = await mapStore.worker.db.get(id, { mission: true });
+        if (!exists) {
+            state.error = 'Could not delete that point';
+            return;
+        }
+        await mapStore.worker.db.remove(id, { mission: true });
+        await mapStore.refresh();
         clearSelection();
     } catch (err) {
         state.error = err instanceof Error ? err.message : String(err);
@@ -1088,6 +1098,7 @@ async function upsertCot(opts: {
         type: 'Feature' as const,
         path: '/',
         properties: {
+            id: opts.id,
             callsign,
             remarks,
         },
@@ -1099,6 +1110,14 @@ async function upsertCot(opts: {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const norm: any = await normalize_geojson(feat as any);
+    // normalize_geojson validates a bare GeoJSONFeature schema with clean:true,
+    // which strips top-level `path`. Re-apply the CloudTAK Feature shape used
+    // by CoordInput / draw so archived points land on Map Features (source -1)
+    // and show in the Features panel when no Active Mission is set.
+    norm.id = opts.id;
+    norm.path = '/';
+    norm.properties = norm.properties || {};
+    norm.properties.id = opts.id;
     norm.properties.how = 'h-g-i-g-o';
     norm.properties.archived = true;
     norm.properties.remarks = remarks;
@@ -1121,6 +1140,7 @@ async function upsertCot(opts: {
         norm.properties.icon = useIcon;
     }
     await mapStore.worker.db.add(JSON.parse(JSON.stringify(norm)), { authored: true });
+    await mapStore.refresh();
     if (opts.replaceIcon && state.editing && selected) {
         if (selected.cotType) {
             state.editing.icon = undefined;
