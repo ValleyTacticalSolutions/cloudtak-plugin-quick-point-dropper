@@ -1,6 +1,6 @@
 {
   "name": "cloudtak-plugin-quick-point-dropper",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "CloudTAK plugin — drop CoT points from icon packs with a shared admin-curated Favorites list",
   "license": "Apache-2.0",
