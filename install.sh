@@ -166,7 +166,7 @@ else
     fi
     if [ -z "$ROUTES_DEST" ]; then
         echo "ERROR: this CloudTAK predates the 13.45 hub/api split (no api/stateless/routes/)." >&2
-        echo "  Quick Point Dropper server routes require CloudTAK >= 13.45 — update CloudTAK first." >&2
+        echo "  Quick Point Dropper requires CloudTAK >= 13.124 (OXLint API + Auth.security) — update CloudTAK first." >&2
         exit 1
     fi
     mkdir -p "$CT_DIR/api/web/plugins" "$ROUTES_DEST"

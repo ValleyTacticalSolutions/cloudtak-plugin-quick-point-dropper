@@ -1,7 +1,3 @@
-// CloudTAK lints copied plugin routes with its OWN house-style rules, which differ across
-// versions. A plugin can't satisfy every CloudTAK version, so opt this route file out of
-// CloudTAK's lint — the plugin repo owns its correctness (vue-tsc/eslint in dev).
-/* eslint-disable */
 import { Type } from '@sinclair/typebox';
 import { sql } from 'drizzle-orm';
 import Schema from '@openaddresses/batch-schema';
@@ -219,6 +215,7 @@ export default async function router(schema: Schema, config: ConfigStateless) {
         res: Type.Object({
             favorite: FavoriteSchema,
         }),
+        security: Auth.security({ admin: true }),
     }, async (req, res) => {
         try {
             const user = await Auth.as_user(config, req, { admin: true });
@@ -272,6 +269,7 @@ export default async function router(schema: Schema, config: ConfigStateless) {
             status: Type.Integer(),
             message: Type.String(),
         }),
+        security: Auth.security({ admin: true }),
     }, async (req, res) => {
         try {
             await Auth.as_user(config, req, { admin: true });
@@ -304,6 +302,7 @@ export default async function router(schema: Schema, config: ConfigStateless) {
             })),
         }),
         res: LayoutSchema,
+        security: Auth.security({ admin: true }),
     }, async (req, res) => {
         try {
             await Auth.as_user(config, req, { admin: true });

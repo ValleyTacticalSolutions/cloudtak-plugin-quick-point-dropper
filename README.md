@@ -4,7 +4,7 @@ A CloudTAK plugin for dropping and editing map points quickly.
 
 Pick an icon, click the map, and a CoT point is created. Click an existing point to change its title, remarks, icon, or location. Shared **Favorites** sit at the top of the menu so the icons you use most are one tap away.
 
-Requires CloudTAK **13.45** or newer.
+Requires CloudTAK **13.124** or newer (OXLint/TS7 API image; Auth.security admin schemes from 13.123).
 
 ## What it does
 
