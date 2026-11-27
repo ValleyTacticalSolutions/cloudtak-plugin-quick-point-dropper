@@ -100,3 +100,7 @@ The compiled install builds the plugin inside CloudTAK. To check it against the 
 ```bash
 bash verify-cloudtak.sh . quick-point-dropper
 ```
+
+## License
+
+GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`). See `LICENSE`. Parts of `plugin/lib/vendor/` and `plugin/lib/coordinateFormat.ts` are adapted from CloudTAK (dfpc-coe/CloudTAK, AGPL-3.0).

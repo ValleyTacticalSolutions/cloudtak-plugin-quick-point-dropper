@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "type": "module",
   "description": "CloudTAK plugin: drop CoT points from icon packs with a shared admin-curated Favorites list",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "https://github.com/ValleyTacticalSolutions/cloudtak-plugin-quick-point-dropper.git"
