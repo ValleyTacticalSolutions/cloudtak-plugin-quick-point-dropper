@@ -1,6 +1,8 @@
 <template>
     <div
         class='d-flex align-items-center justify-content-center px-2 cursor-pointer cloudtak-hover'
+        style='height: 50px; max-height: 50px; min-width: 44px; overflow: hidden; touch-action: manipulation;'
+        role='button'
         :title='state.moving ? "Cancel move" : "Stop dropping points"'
         @click='onClick'
     >

@@ -1,8 +1,8 @@
 import type { App } from 'vue';
 import { h, markRaw } from 'vue';
 import type { PluginAPI, PluginInstance } from '@tak-ps/cloudtak';
-// Host component (plugin is built inside api/web/plugins/, same as dropper.ts host imports).
-import MenuTemplate from '../../src/components/CloudTAK/util/MenuTemplate.vue';
+import MenuTemplate from './lib/vendor/MenuTemplate.vue';
+import { setHost } from './lib/host.ts';
 import DropperContainer from './lib/DropperContainer.vue';
 import DropperBottomBar from './lib/DropperBottomBar.vue';
 import ClearSelectionButton from './lib/ClearSelectionButton.vue';
@@ -18,9 +18,11 @@ import {
 
 export default class QuickPointDropper implements PluginInstance {
     api: PluginAPI;
+    private enabled = false;
 
     constructor(api: PluginAPI) {
         this.api = api;
+        setHost(api);
 
         // Routes register once at install time and are never removed —
         // CloudTAK calls disable() before enable() on load, so removing
@@ -46,8 +48,13 @@ export default class QuickPointDropper implements PluginInstance {
     }
 
     async enable(): Promise<void> {
+        // CloudTAK may call enable() more than once: stay a no-op after the first
+        if (this.enabled) return;
+        this.enabled = true;
+
         setDroppingListener((dropping) => {
             if (dropping) {
+                this.api.bottomBar.remove(BOTTOM_BAR_KEY);
                 this.api.bottomBar.add({
                     key: BOTTOM_BAR_KEY,
                     component: markRaw(DropperBottomBar)
@@ -59,6 +66,7 @@ export default class QuickPointDropper implements PluginInstance {
 
         init(this.api);
 
+        this.api.menu.remove(MENU_KEY);
         this.api.menu.add({
             key: MENU_KEY,
             label: 'Quick Point Dropper',
@@ -70,6 +78,8 @@ export default class QuickPointDropper implements PluginInstance {
     }
 
     async disable(): Promise<void> {
+        // Safe to call when not enabled (CloudTAK calls disable() before enable() on load)
+        this.enabled = false;
         destroy();
         setDroppingListener(null);
         try { this.api.bottomBar.remove(BOTTOM_BAR_KEY); } catch { /* ignore */ }

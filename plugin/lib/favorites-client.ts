@@ -1,4 +1,4 @@
-import { std } from '../../../src/std.ts';
+import { apiFetch } from './host.ts';
 
 export interface FavoriteIcon {
     iconset: string;
@@ -63,7 +63,7 @@ function parseLayout(raw: unknown): Pick<FavoritesResponse, 'sections' | 'favori
 }
 
 export async function listFavorites(): Promise<FavoritesResponse> {
-    const r = await std('/api/qpd/favorites', { method: 'GET' }) as Partial<FavoritesResponse> & {
+    const r = await apiFetch('/api/qpd/favorites', { method: 'GET' }) as Partial<FavoritesResponse> & {
         favorites?: unknown[];
         sections?: unknown[];
     };
@@ -80,7 +80,7 @@ export async function addFavorite(icon: {
     name: string;
     sectionId?: string | null;
 }): Promise<FavoriteIcon> {
-    const r = await std('/api/qpd/favorites', {
+    const r = await apiFetch('/api/qpd/favorites', {
         method: 'POST',
         body: {
             iconset: icon.iconset,
@@ -104,11 +104,11 @@ export async function addFavorite(icon: {
 
 export async function removeFavorite(iconset: string, path: string): Promise<void> {
     const q = new URLSearchParams({ iconset, path });
-    await std(`/api/qpd/favorites?${q.toString()}`, { method: 'DELETE' });
+    await apiFetch(`/api/qpd/favorites?${q.toString()}`, { method: 'DELETE' });
 }
 
 export async function saveLayout(payload: LayoutPayload): Promise<Pick<FavoritesResponse, 'sections' | 'favorites'>> {
-    const r = await std('/api/qpd/layout', {
+    const r = await apiFetch('/api/qpd/layout', {
         method: 'POST',
         body: payload,
     });

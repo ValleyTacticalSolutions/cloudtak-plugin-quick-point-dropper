@@ -2,12 +2,12 @@ import {
     formatCoordPair,
     parseCoordPair,
     type CoordMode,
-} from '../../../src/utils/coordinateFormat.ts';
+} from './vendor/coordinateFormat.ts';
 
 export type { CoordMode };
 
 export function isCoordMode(value: unknown): value is CoordMode {
-    return value === 'dd' || value === 'dm' || value === 'dms' || value === 'mgrs' || value === 'utm';
+    return value === 'dd' || value === 'dm' || value === 'dms' || value === 'mgrs' || value === 'utm' || value === 'bng';
 }
 
 export function formatLatLng(lat: number, lng: number, mode: CoordMode = 'dd'): string {

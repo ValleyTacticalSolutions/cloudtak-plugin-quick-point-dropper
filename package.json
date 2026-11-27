@@ -1,0 +1,39 @@
+{
+  "name": "cloudtak-plugin-quick-point-dropper",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "CloudTAK plugin: drop CoT points from icon packs with a shared admin-curated Favorites list",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ValleyTacticalSolutions/cloudtak-plugin-quick-point-dropper.git"
+  },
+  "cloudtak": {
+    "minVersion": "14.4.1"
+  },
+  "scripts": {
+    "verify": "bash verify-cloudtak.sh . quick-point-dropper",
+    "build:bundle": "vite build --config vite.bundle.config.ts",
+    "bundle": "npm run build:bundle && node scripts/bundle.mjs"
+  },
+  "cloudtakBundle": {
+    "name": "quick-point-dropper",
+    "author": "ValleyTacticalSolutions",
+    "homepage": "https://github.com/ValleyTacticalSolutions/cloudtak-plugin-quick-point-dropper"
+  },
+  "devDependencies": {
+    "@tabler/icons-vue": "^3.31.0",
+    "@tak-ps/node-cot": "^14.61.0",
+    "@tak-ps/vue-tabler": "^6.0.0",
+    "@types/geojson": "^7946.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "geo-coordinates-parser": "^1.7.4",
+    "maplibre-gl": "^6.16.0",
+    "pinia": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "vite-plugin-css-injected-by-js": "^3.5.0",
+    "vue": "^3.5.0",
+    "vue-router": "^5.0.0"
+  }
+}

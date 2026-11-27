@@ -5,10 +5,7 @@
 import { reactive, watch, nextTick } from 'vue';
 import type { PluginAPI } from '@tak-ps/cloudtak';
 import { normalize_geojson } from '@tak-ps/node-cot/normalize_geojson';
-import { useMapStore } from '../../../src/stores/map.ts';
-import OverlayManager from '../../../src/base/overlay.ts';
-import IconsetManager from '../../../src/base/iconset.ts';
-import Icon from '../../../src/base/icon.ts';
+import { apiFetch, hostStore } from './host.ts';
 import {
     STANDARD_PACK,
     standardIcons,
@@ -34,6 +31,45 @@ export const UNGROUPED_FOLDER = '__ungrouped__';
 
 const LS_LAST_PACK = 'cloudtak-qpd-lastIconset';
 const LS_DETAILED = 'cloudtak-qpd-detailedView';
+
+/**
+ * The members of CloudTAK's live map store this plugin uses. The store is read from the host's
+ * Pinia (see host.ts) so the same code works compiled in and as a runtime bundle.
+ */
+type CloudtakMapStore = {
+    radial: { mode?: string; cot?: { id?: string; properties?: { id?: string } } };
+    select: { feats: unknown[] };
+    coordFormat?: string;
+    refresh(): Promise<void>;
+    worker: {
+        db: {
+            get(id: string, opts?: { mission?: boolean }): Promise<unknown>;
+            add(feat: unknown, opts?: { authored?: boolean }): Promise<unknown>;
+            remove(id: string, opts?: { mission?: boolean }): Promise<unknown>;
+        };
+    };
+};
+
+function mapStore(): CloudtakMapStore {
+    return hostStore<CloudtakMapStore>('cloudtak', api?.pinia);
+}
+
+/** Phones and tablets: the menu is a sheet over the map, and there is no hover or keyboard */
+function isMobile(): boolean {
+    try {
+        return hostStore<{ isMobileDetected?: boolean }>('cloudtak-app', api?.pinia).isMobileDetected === true;
+    } catch {
+        return false;
+    }
+}
+
+function coarsePointer(): boolean {
+    try {
+        return window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+        return false;
+    }
+}
 
 export interface IconPack {
     uid: string;
@@ -580,7 +616,7 @@ export function bindTitleInput(el: HTMLInputElement | null): void {
 }
 
 function focusTitleInput(): void {
-    if (!titleInputEl || state.organizing) return;
+    if (!titleInputEl || state.organizing || coarsePointer()) return;
     void nextTick(() => {
         titleInputEl?.focus({ preventScroll: true });
     });
@@ -808,12 +844,10 @@ const onMapMouseMove = (): void => {
 function clearRadial(): void {
     if (!api) return;
     try {
-        const mapStore = useMapStore(api.pinia) as {
-            radial?: { mode?: unknown; cot?: unknown };
-        };
-        if (mapStore.radial) {
-            mapStore.radial.mode = undefined;
-            mapStore.radial.cot = undefined;
+        const store = mapStore();
+        if (store.radial) {
+            store.radial.mode = undefined;
+            store.radial.cot = undefined;
         }
     } catch { /* ignore */ }
 }
@@ -821,8 +855,8 @@ function clearRadial(): void {
 function clearSelectMenu(): void {
     if (!api) return;
     try {
-        const mapStore = useMapStore(api.pinia) as { select?: { feats?: unknown[] } };
-        if (mapStore.select?.feats?.length) mapStore.select.feats = [];
+        const store = mapStore();
+        if (store.select?.feats?.length) store.select.feats = [];
     } catch { /* ignore */ }
 }
 
@@ -831,23 +865,14 @@ function suppressCloudtakUi(): void {
     clearSelectMenu();
 }
 
-type MapStoreUi = {
-    radial: {
-        mode?: string;
-        cot?: { id?: string; properties?: { id?: string } };
-    };
-    select: { feats: unknown[] };
-    coordFormat?: string;
-};
-
 function bindMapStoreWatch(): void {
     stopMapStoreWatch?.();
     stopMapStoreWatch = undefined;
     if (!api) return;
-    const mapStore = useMapStore(api.pinia) as MapStoreUi;
-    if (isCoordMode(mapStore.coordFormat)) state.coordFormat = mapStore.coordFormat;
+    const store = mapStore();
+    if (isCoordMode(store.coordFormat)) state.coordFormat = store.coordFormat;
     stopMapStoreWatch = watch(
-        () => [mapStore.radial.mode, mapStore.select.feats?.length ?? 0, mapStore.coordFormat] as const,
+        () => [store.radial.mode, store.select.feats?.length ?? 0, store.coordFormat] as const,
         ([mode, featCount, coordFormat]) => {
             if (isCoordMode(coordFormat)) state.coordFormat = coordFormat;
             if (!pluginRouteActive() || state.organizing) return;
@@ -858,7 +883,7 @@ function bindMapStoreWatch(): void {
             }
             if (!mode || mode === 'context') return;
             if (mode !== 'cot') return;
-            const cot = mapStore.radial.cot;
+            const cot = store.radial.cot;
             const id = String(cot?.properties?.id || cot?.id || '');
             clearRadial();
             if (id) void beginEdit(id);
@@ -868,7 +893,10 @@ function bindMapStoreWatch(): void {
 
 function pluginRouteActive(): boolean {
     if (!api) return false;
-    return api.router.currentRoute.value.name === ROUTE_NAME;
+    if (api.router.currentRoute.value.name === ROUTE_NAME) return true;
+    // On a phone the menu sheet has to be closed to reach the map, so drop and move
+    // mode stay live after leaving the plugin route (the bottom bar button ends them)
+    return isMobile() && (state.dropping || state.moving);
 }
 
 export function stopDrop(): void {
@@ -967,17 +995,17 @@ export async function deletePoint(): Promise<void> {
     stopChangeIcon();
     clearSaveTimer();
     try {
-        const mapStore = useMapStore(api.pinia);
+        const store = mapStore();
         // Match CloudTAK FeatureRow / Map cot:delete — mission-filed points
         // are invisible to remove(id) without { mission: true }, which used to
         // no-op while still clearing the editor.
-        const exists = await mapStore.worker.db.get(id, { mission: true });
+        const exists = await store.worker.db.get(id, { mission: true });
         if (!exists) {
             state.error = 'Could not delete that point';
             return;
         }
-        await mapStore.worker.db.remove(id, { mission: true });
-        await mapStore.refresh();
+        await store.worker.db.remove(id, { mission: true });
+        await store.refresh();
         clearSelection();
     } catch (err) {
         state.error = err instanceof Error ? err.message : String(err);
@@ -987,31 +1015,26 @@ export async function deletePoint(): Promise<void> {
 function uniqueClickIds(point: { x: number; y: number }): string[] {
     if (!api) return [];
     const hits = api.map.queryRenderedFeatures([point.x, point.y]);
-    let clickMap: Map<string, { type: string }> | undefined;
-    try {
-        clickMap = OverlayManager.clickableLayerMap();
-    } catch { /* overlay manager not ready */ }
     const seen = new Set<string>();
     const ids: string[] = [];
     for (const f of hits) {
         const layer = String(f.layer?.id || '');
-        if (clickMap && clickMap.size > 0 && !clickMap.has(layer)) continue;
         const props = (f.properties || {}) as Record<string, unknown>;
         // CloudTAK stores the CoT UID on properties.id; the MapLibre feature
         // id is a numeric vector hash and must not be used for lookups.
         const raw = props.id ?? props.uid;
         const id = typeof raw === 'string' ? raw : (typeof raw === 'number' ? String(raw) : '');
         if (!id || seen.has(id)) continue;
-        if (!clickMap || clickMap.size === 0) {
-            const source = String(f.source || '');
-            if (
-                !source.includes('cot')
-                && !layer.toLowerCase().includes('cot')
-                && props.callsign === undefined
-                && props.type === undefined
-            ) {
-                continue;
-            }
+        // CloudTAK's overlay manager (the list of clickable layers) is not reachable from a
+        // runtime bundle, so recognise CoT features by their source, layer and properties
+        const source = String(f.source || '');
+        if (
+            !source.includes('cot')
+            && !layer.toLowerCase().includes('cot')
+            && props.callsign === undefined
+            && props.type === undefined
+        ) {
+            continue;
         }
         seen.add(id);
         ids.push(id);
@@ -1035,8 +1058,7 @@ async function getFeature(uid: string): Promise<LoadedFeature | null> {
     if (!api || !uid) return null;
 
     try {
-        const mapStore = useMapStore(api.pinia);
-        const cot = await mapStore.worker.db.get(uid, { mission: true }) as {
+        const cot = await mapStore().worker.db.get(uid, { mission: true }) as {
             id?: string;
             properties?: Record<string, unknown>;
             _properties?: Record<string, unknown>;
@@ -1056,7 +1078,7 @@ async function getFeature(uid: string): Promise<LoadedFeature | null> {
             };
         }
     } catch {
-        /* fall through to Dexie list */
+        /* fall through to the feature list */
     }
 
     const list = await api.feature.list({
@@ -1088,7 +1110,7 @@ async function upsertCot(opts: {
             : (!selected?.cotType ? opts.icon : undefined);
     }
     if (!useType && !useIcon) return;
-    const mapStore = useMapStore(api.pinia);
+    const store = mapStore();
     const stem = state.title.trim() || defaultCallsign(selected) || 'Point';
     const callsign = opts.enumerate ? enumeratedCallsign(stem) : stem;
     const remarks = remarksText(state.remarks);
@@ -1139,8 +1161,8 @@ async function upsertCot(opts: {
         norm.properties.type = 'u-d-p';
         norm.properties.icon = useIcon;
     }
-    await mapStore.worker.db.add(JSON.parse(JSON.stringify(norm)), { authored: true });
-    await mapStore.refresh();
+    await store.worker.db.add(JSON.parse(JSON.stringify(norm)), { authored: true });
+    await store.refresh();
     if (opts.replaceIcon && state.editing && selected) {
         if (selected.cotType) {
             state.editing.icon = undefined;
@@ -1258,7 +1280,7 @@ async function beginEdit(uid: string): Promise<void> {
             if (match) {
                 state.selected = match;
             } else {
-                const loaded = await displayFromDexie(iconset, path);
+                const loaded = await displayFromServer(iconset, path);
                 state.selected = loaded;
             }
         } else {
@@ -1333,40 +1355,100 @@ const onMapClick = (e: MapClickEvent): void => {
     }
 };
 
-async function displayFromDexie(iconset: string, path: string): Promise<DisplayIcon | null> {
-    try {
-        const row = await Icon.get(iconKey(iconset, path));
-        if (!row?.data) return null;
-        return {
-            iconset,
-            path,
-            name: iconName(path),
-            key: iconKey(iconset, path),
-            url: blobUrl(row.data as Blob),
-        };
-    } catch {
-        return null;
+// Icons come straight from the CloudTAK server (the iconset endpoints), because a runtime
+// bundle cannot reach the host's local icon cache. Fetched packs are kept for the session.
+
+type RemoteIcon = { name: string; path?: string; data: string };
+type PackIcon = { iconset: string; path: string; data: Blob };
+
+const packCache = new Map<string, Promise<PackIcon[]>>();
+const iconCache = new Map<string, Promise<Blob | null>>();
+
+function stripExt(name: string): string {
+    return name.replace(/\.(png|svg|jpg|jpeg|gif)$/i, '');
+}
+
+function dataUrlToBlob(data: string): Blob {
+    let mime = 'image/png';
+    let base64 = data;
+    const match = /^data:([^;,]+);base64,(.*)$/.exec(data);
+    if (match) {
+        mime = match[1];
+        base64 = match[2];
     }
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+}
+
+async function listPacks(): Promise<IconPack[]> {
+    const res = await apiFetch('/api/iconset?limit=0&page=0&order=asc&sort=name&filter=') as {
+        items?: { uid: string; name: string }[];
+    };
+    return (res.items || [])
+        .map((p) => ({ uid: p.uid, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function fetchPack(uid: string): Promise<PackIcon[]> {
+    let pending = packCache.get(uid);
+    if (!pending) {
+        pending = (async () => {
+            const q = new URLSearchParams({ iconset: uid, limit: '0', page: '0', order: 'asc', filter: '' });
+            const res = await apiFetch(`/api/icon?${q.toString()}`, { timeout: 120000 }) as { items?: RemoteIcon[] };
+            const prefix = `${uid}/`;
+            return (res.items || [])
+                .map((icon) => ({
+                    iconset: uid,
+                    path: stripExt(icon.path && icon.path.startsWith(prefix) ? icon.path.slice(prefix.length) : icon.name),
+                    data: dataUrlToBlob(icon.data),
+                }))
+                .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+        })();
+        packCache.set(uid, pending);
+        pending.catch(() => packCache.delete(uid));
+    }
+    return pending;
+}
+
+function fetchIcon(iconset: string, path: string): Promise<Blob | null> {
+    const key = iconKey(iconset, path);
+    let pending = iconCache.get(key);
+    if (!pending) {
+        pending = apiFetch(`/api/iconset/${encodeURIComponent(iconset)}/icon/${encodeURIComponent(path)}`)
+            .then((icon) => {
+                const data = (icon as RemoteIcon | undefined)?.data;
+                return data ? dataUrlToBlob(data) : null;
+            })
+            .catch(() => null);
+        iconCache.set(key, pending);
+        void pending.then((blob) => { if (!blob) iconCache.delete(key); });
+    }
+    return pending;
+}
+
+async function displayFromServer(iconset: string, path: string): Promise<DisplayIcon | null> {
+    const blob = await fetchIcon(iconset, path);
+    if (!blob) return null;
+    return {
+        iconset,
+        path,
+        name: iconName(path),
+        key: iconKey(iconset, path),
+        url: blobUrl(blob),
+    };
 }
 
 async function iconsForPack(uid: string, bucket: string[] = thumbUrls): Promise<DisplayIcon[]> {
-    let rows = await Icon.list(uid);
-    if (!rows.length) {
-        try {
-            await Icon.addIconset(uid);
-            rows = await Icon.list(uid);
-        } catch (err) {
-            console.warn('QPD: failed to hydrate iconset', uid, err);
-        }
-    }
-
+    const rows = await fetchPack(uid);
     revokeUrls(bucket);
     return rows.map((row) => ({
         iconset: row.iconset,
         path: row.path,
         name: iconName(row.path),
-        key: row.name || iconKey(row.iconset, row.path),
-        url: blobUrl(row.data as Blob, bucket),
+        key: iconKey(row.iconset, row.path),
+        url: blobUrl(row.data, bucket),
     }));
 }
 
@@ -1377,13 +1459,7 @@ async function displayFavorite(fav: FavoriteIcon): Promise<DisplayIcon> {
             return { ...std, name: fav.name || std.name, sectionId: fav.sectionId };
         }
     }
-    let icon = await displayFromDexie(fav.iconset, fav.path);
-    if (!icon) {
-        try {
-            await Icon.addIconset(fav.iconset);
-            icon = await displayFromDexie(fav.iconset, fav.path);
-        } catch { /* missing pack */ }
-    }
+    const icon = await displayFromServer(fav.iconset, fav.path);
     if (icon) {
         return { ...icon, name: fav.name || icon.name, sectionId: fav.sectionId };
     }
@@ -1399,11 +1475,7 @@ async function displayFavorite(fav: FavoriteIcon): Promise<DisplayIcon> {
 
 async function iconsForFavorites(): Promise<DisplayIcon[]> {
     revokeThumbs();
-    const out: DisplayIcon[] = [];
-    for (const fav of state.favorites) {
-        out.push(await displayFavorite(fav));
-    }
-    return out;
+    return Promise.all(state.favorites.map((fav) => displayFavorite(fav)));
 }
 
 export async function selectPack(uid: string, opts?: { remember?: boolean }): Promise<void> {
@@ -1561,7 +1633,7 @@ async function retryTransient<T>(run: () => Promise<T>, attempts = 8): Promise<T
 
 async function fetchStartup(): Promise<{ packs: { uid: string; name: string }[]; favs: Awaited<ReturnType<typeof listFavorites>> }> {
     const [packs, favs] = await Promise.all([
-        IconsetManager.list(),
+        listPacks(),
         listFavorites(),
     ]);
     return { packs, favs };
@@ -1611,6 +1683,8 @@ async function keepRetryingLoad(gen: number): Promise<void> {
 
 async function load(): Promise<void> {
     const gen = ++loadGen;
+    packCache.clear();
+    iconCache.clear();
     state.loading = true;
     state.error = '';
     try {
@@ -1657,6 +1731,7 @@ export function init(pluginAPI: PluginAPI): void {
 
     const unhook = api.router.afterEach((to) => {
         if (to.name !== ROUTE_NAME) {
+            if (isMobile() && (state.dropping || state.moving)) return;
             stopDrop();
             stopMove();
             stopChangeIcon();
@@ -1690,6 +1765,8 @@ export function destroy(): void {
     applyDropCursor();
     revokeThumbs();
     revokeLibraryThumbs();
+    packCache.clear();
+    iconCache.clear();
     state.organizing = false;
     api = null;
 }

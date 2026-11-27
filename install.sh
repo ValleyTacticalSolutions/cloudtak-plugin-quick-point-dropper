@@ -10,7 +10,7 @@
 # but every API call 404s.
 #
 # This script:
-#   • copy plugin/ → <CloudTAK>/api/web/plugins/quick-point-dropper/ (web plugin)
+#   • copy plugin/ → <CloudTAK>/app/plugins/quick-point-dropper/ (web plugin)
 #   • copy server/*.ts → <CloudTAK>/api/stateless/routes/ (server routes)
 #   • rebuild + restart the CloudTAK API image so both are baked in.
 #
@@ -33,6 +33,7 @@
 set -euo pipefail
 
 INSTALL_DIR_NAME="quick-point-dropper"
+MIN_CLOUDTAK="14.4.1"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -115,7 +116,23 @@ if [ "$DO_BUILD" -eq 1 ] && [ ! -f "$CT_DIR/docker-compose.yml" ]; then
     exit 1
 fi
 
-WEB_DEST="$CT_DIR/api/web/plugins/$INSTALL_DIR_NAME"
+# Compare dotted versions: true when $1 >= $2
+version_ge() {
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+}
+
+if [ "$ACTION" = "install" ]; then
+    CT_VERSION="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CT_DIR/package.json" 2>/dev/null | head -n1 | tr -d '\r' || true)"
+    if [ -z "$CT_VERSION" ]; then
+        echo "WARNING: could not read the CloudTAK version from $CT_DIR/package.json; continuing." >&2
+    elif ! version_ge "$CT_VERSION" "$MIN_CLOUDTAK"; then
+        echo "ERROR: CloudTAK $CT_VERSION is older than the minimum $MIN_CLOUDTAK — update CloudTAK first." >&2
+        exit 1
+    fi
+fi
+
+WEB_DEST="$CT_DIR/app/plugins/$INSTALL_DIR_NAME"
+LEGACY_WEB_DEST="$CT_DIR/api/web/plugins/$INSTALL_DIR_NAME"
 LEGACY_ROUTES="$CT_DIR/api/routes"
 if [ -d "$CT_DIR/api/stateless/routes" ]; then
     ROUTES_DEST="$CT_DIR/api/stateless/routes"
@@ -146,6 +163,10 @@ fi
 if [ "$ACTION" = "remove" ]; then
     if [ -d "$WEB_DEST" ]; then
         rm -rf "$WEB_DEST"
+        echo "Removed web plugin: app/plugins/$INSTALL_DIR_NAME"
+    fi
+    if [ -d "$LEGACY_WEB_DEST" ]; then
+        rm -rf "$LEGACY_WEB_DEST"
         echo "Removed web plugin: api/web/plugins/$INSTALL_DIR_NAME"
     fi
     for src in "$REPO_DIR"/server/*.ts; do
@@ -166,14 +187,14 @@ else
     fi
     if [ -z "$ROUTES_DEST" ]; then
         echo "ERROR: this CloudTAK predates the 13.45 hub/api split (no api/stateless/routes/)." >&2
-        echo "  Quick Point Dropper requires CloudTAK >= 13.124 (OXLint API + Auth.security) — update CloudTAK first." >&2
+        echo "  Quick Point Dropper requires CloudTAK >= $MIN_CLOUDTAK — update CloudTAK first." >&2
         exit 1
     fi
-    mkdir -p "$CT_DIR/api/web/plugins" "$ROUTES_DEST"
+    mkdir -p "$CT_DIR/app/plugins" "$ROUTES_DEST"
 
-    rm -rf "$WEB_DEST"
+    rm -rf "$WEB_DEST" "$LEGACY_WEB_DEST"
     cp -R "$REPO_DIR/plugin" "$WEB_DEST"
-    echo "Installed web plugin: api/web/plugins/$INSTALL_DIR_NAME"
+    echo "Installed web plugin: app/plugins/$INSTALL_DIR_NAME"
 
     shopt -s nullglob
     for src in "$REPO_DIR"/server/*.ts; do
